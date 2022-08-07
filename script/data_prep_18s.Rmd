@@ -1,0 +1,339 @@
+---
+title: "data_prep"
+author: "Ricardo Silva"
+date: "02/06/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      eval=FALSE, 
+                      message=FALSE, 
+                      warning=FALSE)
+```
+
+```{r CLEAR EVERYTHING, eval=FALSE, include=FALSE}
+# unload all non-base packages
+lapply(names(sessionInfo()$otherPkgs), function(pkgs)
+  detach(
+    paste0('package:', pkgs),
+    character.only = T,
+    unload = T,
+    force = T
+))
+
+rm(list=ls())
+```
+
+# Packages and initial steps
+
+```{r load libraries, message=FALSE, warning=FALSE, include=FALSE}
+# load the packages
+# main packs to start with
+pcks <- c('phyloseq', 'microbiome','microbiomeutilities', 'tidyverse')
+
+if(sum(as.numeric(!pcks %in% installed.packages())) != 0){
+  installation <- pcks[!pcks %in% installed.packages()]
+  for(i in 1:length(installation)) {
+    install.packages(installation, dependencies = T)
+    break()}
+  suppressPackageStartupMessages(
+  sapply(pcks,require,character.only = T)
+) 
+} else {
+  suppressPackageStartupMessages(
+  sapply(pcks,require,character.only = T)
+) 
+}
+
+rm(pcks)
+```
+
+```{r packages and functions}
+# set working directory and seed
+setwd("C:/Users/rrocha/Documents/R/phd/2019/data")
+folder_path <- "C:/Users/rrocha/Documents/R/phd/2019/output/"
+
+source('~/R/phd/2019/script/my_functions.R')
+
+# check the working directory
+current_directory <- getwd()
+paste("Working in directory:", current_directory)
+```
+
+# Data
+
+## ASV tables
+
+```{r prep data}
+# get and prepare the data
+# getting the data and filtering
+
+# OTU tables
+OTUdf_euk <- read_csv("euk_2019.csv")
+OTUdf_euk <- OTUdf_euk %>% column_to_rownames("id")
+
+# check names
+names(OTUdf_euk)
+head(rownames(OTUdf_euk))
+
+OTUdf_euk %>% as_tibble()
+
+# taxonomy table
+TAXdf_euk <- OTUdf_euk %>% select(Kingdom:Species)
+head(rownames(TAXdf_euk))
+
+# clean ASV tables
+OTUdf_euk <- OTUdf_euk %>% select(-seq, -c(Kingdom:Feature_id)) 
+
+# meta_table
+# run this chunk to avoid run the others above
+meta <- read_csv(paste0(getwd(),"/meta_impute.csv")) %>%
+  column_to_rownames("sample_id") %>% 
+  mutate(Depth1 = factor(Depth1, levels=c("Surface (0 - 4 m)","Middle (10 - 15 m)","Bottom (20 - 37 m)")))
+
+# meta <- new.meta %>% rownames_to_column("sample_id") %>% tibble
+
+meta %>% rownames()
+
+meta %>% pull(dist_depth)
+
+# check if the sample names are the same
+# rownames(meta) %in% names(OTUdf_arc)
+waldo::compare(sort(rownames(meta)), sort(names(OTUdf_euk)))
+```
+
+```{r prep data - tax table}
+# check if there is any NA in the taxa table
+TAXdf_euk %>% map_df(~sum(is.na(.))) # starts at the class level
+# apply(TAXdf_arc, 2, function(x) any(is.na(x)))
+
+# remove NAs in Kingdom and Phylum
+# TAXdf <- TAXdf %>% drop_na(Kingdom, Phylum)
+# replace NA by unknown
+TAXdf_euk <- TAXdf_euk %>% replace(is.na(.), "unknown")
+
+# check again
+TAXdf_euk %>% map_df(~sum(is.na(.)))
+TAXdf_euk %>% filter(if_any(everything(), ~ is.na(.x))) %>% count
+
+# filter contaminants (i.e. mithocondria)
+TAXdf_euk %>% map_df(~ sum(str_detect(.,"Mitochondria"))) # no ASV
+
+```
+
+```{r prep data - phyloseq objects}
+# Eukaryotes
+pseq.euk <- phyloseq(otu_table(as.matrix(as.data.frame(OTUdf_euk)), taxa_are_rows = TRUE),
+                     tax_table(as.matrix(TAXdf_euk)), sample_data(meta))
+
+#pseq_df_euk <- microbiomeutilities::phy_to_ldf(pseq.euk, transform.counts = NULL) # pseq to long format
+```
+
+## Phytoplankton
+
+Here we will split eukaryotic community in phytoplankton and not phytoplankton
+
+Unicellular phytoplanktonic ASVs were separated from other protists (unicellular eukaryotes) for further analysis. The phytoplankton classification was based on Not et al. (2012). ASVs targeted were classified as Alveolata (Dinoflagellata), Archaeplastida (Chlorophyta), Cryptophyta (Cryptophyceae), Haptophyta, Rhizaria (Chlorarachniophyta), and Stramenopiles (Chrysophycea and Ochrophyta). ASVs corresponded to macro-algae were excluded from the analysis (Phaeophyceae, Xanthophyceae, Archaeplastida). Metazoa, Archaeplastida, Fungi, and Aphelidea were removed from the final ASV table because most are related to multicellular organisms.
+
+### PR2 database
+
+<https://pr2database.github.io/pr2database/>
+```{r}
+# library("pr2database")
+# 
+# data("pr2")
+# 
+# colnames(pr2)
+#
+# pr2_photo <- pr2 %>% filter((division %in% c("Chlorophyta", "Dinophyta", "Cryptophyta",
+#                                                  "Haptophyta", "Ochrophyta")) &
+#                                               !(class %in% c("Syndiniales", "Sarcomonadea")))
+# 
+# pr2_photo %>% select(kingdom:genus, species) %>% summarise_all(funs(n_distinct(.)))
+
+# pr2 %>% count(class) %>% view
+# 
+# pr2 %>% filter(if_any(everything(), ~str_detect(.,"Aphelidea")))
+# 
+# pr2 %>% filter(division == "Metazoa") %>% 
+# #  group_by(division) %>%
+#   distinct(class) %>% view
+```
+
+
+```{r phytoplankton}
+# pseq.list[[3]] %>%
+#  get_tibble("tax_table") %>%
+# filter(if_any(everything(), ~str_detect(.,'Zearaja')))
+
+# phytoplankton 
+# autotrophics
+phyto.auto <- c("Chlorophyta", 'Cryptophyta', 'Haptophyta', 'Ochrophyta','Cryptomonadales', "Dinophyta")
+# mixotrophics, heterotrophics and autotrophics
+phyto.mixo <- c('Chlorarachniophyta','Dinoflagellata','Chrysophycea')
+macro.algae <- c('Phaeophyceae', 'Xanthophyceae')
+# create a string to subset
+phyto <- str_c(c(phyto.auto, phyto.mixo), collapse = "|")
+
+# unicellular protist (non-phytoplankton)
+multicel <- c("Metazoa", "Archaeplastida", "Fungi", 'Aphelidea')
+# create a string to subset
+multicel <- str_c(multicel, collapse = "|")
+
+# filter pseq.object
+tax.phyto <- pseq.euk %>% 
+  get_tibble("tax_table") %>% 
+  filter(if_any(everything(), ~str_detect(.,phyto)))
+
+# get only phytoplankton ASVs 
+otu.euk <- pseq.euk %>%
+  get_tibble("otu_table")
+otu.phyto <- tax.phyto %>% left_join(otu.euk) %>% 
+  select(-c(Kingdom:Species)) %>% column_to_rownames("column_id")
+
+# make a phyloseq object
+tax.phyto.df <- tax.phyto %>% column_to_rownames("column_id") %>% mutate(Kingdom = paste("Phytoplankton"))
+pseq.phyto <- phyloseq(otu_table(as.matrix(as.data.frame(otu.phyto)), taxa_are_rows = TRUE),
+                     tax_table(as.matrix(tax.phyto.df)), sample_data(meta))
+
+# other unicellular protists - remove Archaeplastida (non protisits Red algae and green algae) and keep only unicellular eukaryotes
+tax.not.phyto <- pseq.euk %>% 
+  get_tibble("tax_table") %>% 
+  filter(if_all(everything(), ~!str_detect(.,phyto))) %>% 
+   filter(if_all(everything(), ~!str_detect(.,multicel)))
+
+otu.no.phyto <- tax.not.phyto %>% left_join(otu.euk) %>% 
+  select(-c(Kingdom:Species)) %>% column_to_rownames("column_id")
+
+waldo::compare(tax.phyto$column_id, tax.not.phyto$column_id)
+
+# make a phyloseq object
+tax.not.phyto.df <- tax.not.phyto %>% column_to_rownames("column_id") %>% mutate(Kingdom = paste("Other_Protists"))
+pseq.no.phyto <- phyloseq(otu_table(as.matrix(as.data.frame(otu.no.phyto)), taxa_are_rows = TRUE),
+                     tax_table(as.matrix(tax.not.phyto.df)), sample_data(meta))
+
+# make a list of these phyloseq objects
+pseq.euk.list <- list(pseq.euk, pseq.phyto, pseq.no.phyto)
+names(pseq.euk.list) <- c("Eukaryotes", "Phytoplankton", "Other_protists")
+
+# Saving on object in RData format
+save(pseq.euk.list, file = "pseq.euk.list.RData")
+
+# pseq.euk.list[[3]] %>% get_tibble("tax_table") %>% group_by(Phylum) %>% count(Order) %>% View
+
+```
+
+
+### Filtering and clr transformation
+
+Only OTUs present in at least two samples were retained.
+
+```{r prevalence table}
+# Lets generate a prevalence table (number of samples each taxa occurs in) for each taxa.
+prev.list <- pseq.euk.list %>% map(prevalence_table, "Phylum")
+prev.list
+# Remove taxa not seen more than 1 time in at least 10% of the samples. 
+# p.filt = filter_taxa(pseq.list[[4]], function(x) sum(x > 1) > (0.1*length(x)), TRUE)
+# keep taxa seen at least 2 times in at least 2 samples
+# p.filt = filter_taxa(pseq.list[[4]], function(x) sum(x > 2) > 1, TRUE)
+# keep taxa seen at least 3 times across all samples
+# p.filt = prune_taxa(taxa_sums(pseq.list[[4]]) > 5, pseq.list[[4]])
+# remove singletons
+# p.filt = prune_taxa(taxa_sums(pseq.list[[4]] > 1, pseq.list[[4]]) 
+```
+
+```{r data prep}
+# not filter function dataset
+# pseq.func <- pseq.list %>% pluck("function")
+# pseq.list <- pseq.list %>% list_modify("function" = NULL)
+
+# filtering data and clr-transformation
+# min.prop  = minimum proportion in any sample (default)
+# min.occurrence = 0.001 # minimum occurrence across all samples (sparsity filter; default)
+
+# function to filter
+# pseq.filter <- function(x, min.prop){
+#   d.filt0 <- CoDaSeq::codaSeq.filter(otu_table(x), min.reads = 5000, min.prop=0, min.occurrence=0, samples.by.row=FALSE)
+#   d.filt <- CoDaSeq::codaSeq.filter(d.filt0,  min.reads = 5000, min.prop = min.prop, max.prop=1, min.occurrence = 0.001, samples.by.row=FALSE)
+#   # creatin a TAX table for the phyloseq object
+#   TAXdf <- x %>% microbiomeutilities::get_tibble("tax_table") %>% column_to_rownames('column_id')
+#   TAX.filt <- base::subset(TAXdf, row.names(TAXdf) %in% row.names(d.filt))
+#   pseq.filt <- phyloseq(otu_table(as.matrix(as.data.frame(d.filt)), taxa_are_rows = TRUE), 
+#                        tax_table(as.matrix(TAX.filt)), sample_data(as.data.frame(sample_data(x))))
+#   return(pseq.filt)
+# }
+
+pseq.filter <- function(p){
+  # keep taxa seen at least 2 times in at least 2 samples
+  p.filt = filter_taxa(p, function(x) sum(x > 2) > 2, TRUE)
+#  p.filt1 = prune_taxa(taxa_sums(p.filt) > 10, p.filt) 
+return(p.filt)
+}
+
+# clr transformation
+clr.trans <- function(x){
+  pseq <- x
+  TAX.filt <- pseq %>% get_tibble("sam_data", column_id = "sample_id") %>% column_to_rownames("sample_id")
+  d.filt <- pseq %>% get_tibble("otu_table", column_id = "asv") %>% column_to_rownames("asv")
+  d.zero.hand <- t(zCompositions::cmultRepl(t(d.filt), label =0, method="CZM")) # filtered
+  d.clr <- CoDaSeq::codaSeq.clr(d.zero.hand, samples.by.row = FALSE) # samples as COLUMN
+  df.clr <- phyloseq(otu_table(as.matrix(d.clr), taxa_are_rows = TRUE), 
+                     tax_table(as.matrix(tax_table(x))),sample_data(as.data.frame(sample_data(x))))
+}
+
+# filtering 
+# pseq.list.filt.0 <- pseq.list %>% map(.,~pseq.filter(.,min.prop = 0))
+# pseq.list.filt <- pseq.list %>% map(.,~pseq.filter(.,min.prop = 0.001))
+pseq.euk.list.filt <- pseq.euk.list %>% map(pseq.filter)
+
+# clr transformation
+pseq.euk.list.clr <- pseq.euk.list.filt %>% map(clr.trans)
+# ord <- ordinate(pseq.list.clr[[2]], "RDA", distance = "euclidean")
+# plot_ordination(pseq.list.0.clr[[2]], ord , color = "Depth")
+
+# relative % abundance for bar plot
+# pseq.list.0.rel <- pseq.list.filt.0 %>% map(.,~transform(.,"compositional"))
+pseq.euk.list.rel <- pseq.euk.list.filt %>% map(.,~transform(.,"compositional"))
+
+# checking
+table(tax_table(pseq.euk.list[[2]])[,"Phylum"])
+table(tax_table(pseq.euk.list.rel[[2]])[,"Phylum"])
+sample_data(pseq.euk.list.clr[[2]]) %>% row.names()
+
+# Saving on object in RData format
+# save(pseq.list.filt.0, file = "pseq.list.filt.0.RData")
+save(pseq.euk.list.filt , file = "pseq.euk.list.filt.RData")
+# save(pseq.list.0.clr, file = "pseq.list.0.clr.RData")
+save(pseq.euk.list.clr, file = "pseq.euk.list.clr.RData")
+
+pseq.euk.list.filt %>% map(summarize_phyloseq)
+# microbiomeutilities::print_ps()
+```
+
+# count ASVs before and after filtering
+```{r counting}
+asv_count <- function(pseq){
+  
+ n = pseq %>% get_tibble("otu_table",column_id = "ASV") %>% nrow()
+ return(n)
+  
+}
+
+pseq.euk.list %>% map_df(.,asv_count)
+pseq.euk.list.filt %>% map_df(.,asv_count)
+```
+
+
+```{r data prep}
+```
+
+
+
+```{r}
+c("tidymodels", "randomForest", "vip", "ggtern", "factoextra", "stats") %>% purrr::map(., packageVersion) 
+c("tidymodels", "randomForest", "vip", "ggtern","factoextra", "stats") %>% purrr::map(., citation) 
+
+```
+
