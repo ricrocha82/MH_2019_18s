@@ -13,7 +13,7 @@ The following folders contain scripts for data analysis and figures.
 * [scripts](../master/scripts/) contains all scripts to reproduce the analyses and figures (main and supplements).
 
 * [data](../master/data/) contains the processed data used in this paper (otu and taxa tables, meta data).
-* [geo_data_mh](../master/geo_data_mh/) contains the files used to generate the maps.
+* [geo_data_mh](https://github.com/ricrocha82/MH_2019_16s/tree/main/geo_data_mh) contains the files used to generate the maps.
 
 
 ## Data availability 
