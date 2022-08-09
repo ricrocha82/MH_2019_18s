@@ -2,7 +2,7 @@
 
 This repository contains scripts used to process and analyse the data as well as to reproduce the figures using 18S rRNA amplicon sequencing data for our paper:
 
-Preprint: [Effects of finfish farms on pelagic protist communities in a semi-closed stratified embayment](https://www.biorxiv.org/content/10.1101/2022.08.08.503163v1, target="_blank")
+Preprint: [Effects of finfish farms on pelagic protist communities in a semi-closed stratified embayment](https://www.biorxiv.org/content/10.1101/2022.08.08.503163v1)
 
 
 
